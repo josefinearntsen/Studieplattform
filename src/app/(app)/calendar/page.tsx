@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { addDays, addWeeks, format, isSameDay, startOfWeek } from 'date-fns';
 import { nb } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { ChevronLeft, ChevronRight, CheckSquare } from 'lucide-react';
 import { getAssignments, getLectures, DEMO_MODE } from '@/lib/data';
-import { getGoogleCalendarEvents, isGoogleCalendarConnected } from '@/lib/google-calendar';
+import { getGoogleCalendarEvents, getGoogleTasks, isGoogleCalendarConnected } from '@/lib/google-calendar';
 import { Badge, Card, SectionTitle } from '@/components/ui';
 
 type AgendaItem = {
@@ -11,6 +11,7 @@ type AgendaItem = {
   date: Date;
   title: string;
   category: 'lecture' | 'deadline' | 'google';
+  color?: string;
 };
 
 export default async function CalendarPage({
@@ -18,10 +19,11 @@ export default async function CalendarPage({
 }: {
   searchParams: { week?: string };
 }) {
-  const [lectures, assignments, googleEvents, googleConnected] = await Promise.all([
+  const [lectures, assignments, googleEvents, googleTasks, googleConnected] = await Promise.all([
     getLectures(),
     getAssignments(),
     DEMO_MODE ? Promise.resolve([]) : getGoogleCalendarEvents(),
+    DEMO_MODE ? Promise.resolve([]) : getGoogleTasks(),
     DEMO_MODE ? Promise.resolve(false) : isGoogleCalendarConnected(),
   ]);
 
@@ -43,19 +45,51 @@ export default async function CalendarPage({
       date: new Date(e.start),
       title: e.title,
       category: 'google' as const,
+      color: e.color,
     })),
   ];
+
+  // Gjøremål med frist vises også i tidslinjen; de uten frist vises kun i egen liste
+  const tasksWithDue = googleTasks.filter((t) => t.due);
+  const tasksWithoutDue = googleTasks.filter((t) => !t.due);
+  tasksWithDue.forEach((t) => {
+    items.push({
+      id: `task-${t.id}`,
+      date: new Date(t.due as string),
+      title: `✓ ${t.title}`,
+      category: 'google',
+      color: '#6E5A94',
+    });
+  });
 
   const weekOffset = Number(searchParams.week ?? '0') || 0;
   const weekStart = addWeeks(startOfWeek(new Date(), { weekStartsOn: 1 }), weekOffset);
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
-  // Kommende hendelser uavhengig av hvilken uke som vises i rutenettet over —
-  // nyttig fordi hendelser (særlig fra Google) ofte ligger utenfor akkurat denne uken.
   const upcoming = items
     .filter((it) => it.date.getTime() >= Date.now())
     .sort((a, b) => a.date.getTime() - b.date.getTime())
     .slice(0, 15);
+
+  function itemBadge(it: AgendaItem, showTime = true) {
+    if (it.category === 'google') {
+      return (
+        <span
+          className="inline-block rounded-full px-2.5 py-1 text-xs font-medium text-white"
+          style={{ backgroundColor: it.color }}
+        >
+          {showTime && `${format(it.date, 'HH:mm')} `}
+          {it.title}
+        </span>
+      );
+    }
+    return (
+      <Badge tone={it.category === 'lecture' ? 'accent' : 'warn'}>
+        {showTime && `${format(it.date, 'HH:mm')} `}
+        {it.title}
+      </Badge>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -101,11 +135,7 @@ export default async function CalendarPage({
               </p>
               <ul className="mt-2 space-y-2">
                 {dayItems.map((it) => (
-                  <li key={it.id}>
-                    <Badge tone={it.category === 'lecture' ? 'accent' : it.category === 'google' ? 'good' : 'warn'}>
-                      {format(it.date, 'HH:mm')} {it.title}
-                    </Badge>
-                  </li>
+                  <li key={it.id}>{itemBadge(it)}</li>
                 ))}
               </ul>
             </Card>
@@ -126,9 +156,7 @@ export default async function CalendarPage({
                   <span className="text-muted">
                     {format(it.date, 'EEE d. MMM, HH:mm', { locale: nb })}
                   </span>
-                  <Badge tone={it.category === 'lecture' ? 'accent' : it.category === 'google' ? 'good' : 'warn'}>
-                    {it.category === 'google' ? 'Google' : it.category === 'lecture' ? 'Forelesning' : 'Frist'}
-                  </Badge>
+                  {itemBadge(it, false)}
                 </div>
               </li>
             ))}
@@ -136,12 +164,25 @@ export default async function CalendarPage({
         )}
       </Card>
 
+      {tasksWithoutDue.length > 0 && (
+        <Card>
+          <SectionTitle>Gjøremål uten frist</SectionTitle>
+          <ul className="space-y-2">
+            {tasksWithoutDue.map((t) => (
+              <li key={t.id} className="flex items-center gap-2 text-sm">
+                <CheckSquare size={14} className="text-muted" />
+                {t.title}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
       <Card>
         <SectionTitle>Google Calendar</SectionTitle>
         {googleConnected ? (
           <p className="text-sm text-good">
-            ✓ Koblet til — hendelser fra Google Calendar vises i kalenderen over (grønn) og i
-            listen over kommende hendelser.
+            ✓ Koblet til — hendelser og gjøremål fra Google vises nå med kalenderens egen farge.
           </p>
         ) : (
           <p className="text-sm text-muted">

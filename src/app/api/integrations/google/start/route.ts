@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
-const SCOPE = 'https://www.googleapis.com/auth/calendar.readonly';
+const SCOPE = [
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/tasks.readonly',
+].join(' ');
 
 export async function GET() {
   const clientId = process.env.GOOGLE_CLIENT_ID;
