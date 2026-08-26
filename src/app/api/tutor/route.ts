@@ -24,9 +24,10 @@ export async function POST(req: Request) {
     ]);
 
     return NextResponse.json({ reply: text });
-  } catch (err: any) {
+    } catch (err: any) {
+    console.error('AI tutor error:', err);
     return NextResponse.json(
-      { error: 'AI-tjenesten er ikke konfigurert ennå. Legg inn API-nøkkel i .env.local.' },
+      { error: `AI-feil: ${err.message}` },
       { status: 503 }
     );
   }

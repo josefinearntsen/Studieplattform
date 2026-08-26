@@ -65,8 +65,39 @@ async function completeWithOpenAI(messages: ChatMessage[]): Promise<AiCompletion
   return { text: data.choices?.[0]?.message?.content ?? '' };
 }
 
+/**
+ * NTNU IDUN HPC — gratis, OpenAI-kompatibelt LLM-API for NTNU-studenter.
+ * Krever NTNU-nett eller NTNU VPN (fungerer ikke fra f.eks. en Vercel-server).
+ * Se: https://www.hpc.ntnu.no/idun/documentation/ai-coding-assistant-and-large-language-models-llms-on-idun/
+ */
+async function completeWithNtnu(messages: ChatMessage[]): Promise<AiCompletionResult> {
+  const apiKey = process.env.NTNU_API_KEY;
+  if (!apiKey) throw new Error('NTNU_API_KEY er ikke satt');
+
+  const model = process.env.NTNU_MODEL || 'openai/gpt-oss-120b';
+
+  const res = await fetch('https://llm.hpc.ntnu.no/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({ model, messages }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(
+      `NTNU LLM API error: ${res.status}. Sjekk at du er på NTNU-nett/VPN. ${body}`.trim()
+    );
+  }
+  const data = await res.json();
+  return { text: data.choices?.[0]?.message?.content ?? '' };
+}
+
 export async function completeChat(messages: ChatMessage[]): Promise<AiCompletionResult> {
   const provider = process.env.AI_PROVIDER ?? 'anthropic';
   if (provider === 'openai') return completeWithOpenAI(messages);
+  if (provider === 'ntnu') return completeWithNtnu(messages);
   return completeWithAnthropic(messages);
 }

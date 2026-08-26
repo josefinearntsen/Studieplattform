@@ -79,12 +79,18 @@ Krever et Google Cloud-prosjekt med Calendar API aktivert:
 2. Aktiver "Google Calendar API"
 3. Opprett OAuth 2.0-credentials (Web application)
 4. Legg redirect URI: `http://localhost:3000/api/integrations/google/callback`
-5. Legg `GOOGLE_CLIENT_ID` og `GOOGLE_CLIENT_SECRET` i `.env.local`
+5. Legg `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` og `GOOGLE_REDIRECT_URI` i `.env.local`
+6. Restart dev-serveren, gå til `/settings` og trykk **"Koble til"** under Google Calendar
 
-Databasetabellen `user_integrations` og innstillingssiden (`/settings`) er
-klare for dette — selve OAuth-callback-ruten (`/api/integrations/google/*`)
-er ikke bygget ennå fordi den krever dine faktiske credentials for å testes
-riktig. Det er neste steg når du har satt opp punktene over.
+Dette er nå fullt bygget: knappen sender deg til Googles innloggingsside
+(`/api/integrations/google/start`), tar imot svaret
+(`/api/integrations/google/callback`), lagrer et vedvarende tilgangstoken i
+`user_integrations`, og henter kommende hendelser fra din primære Google-kalender
+inn i appens kalenderside (vises med grønn markering).
+
+Feilsøking: hvis du kobler til på nytt uten at Google gir deg et nytt
+refresh-token, gå til https://myaccount.google.com/permissions, fjern
+tilgangen appen din har fått, og prøv "Koble til" igjen.
 
 ---
 
@@ -155,16 +161,16 @@ data (frister, progresjon, eksamensdato).
 
 ## Status: hva er bygget vs. hva er neste steg
 
-**Bygget og fungerende (MVP, prioritet 1–9 i spec):**
+**Bygget og fungerende (MVP, prioritet 1–9 i spec, + Google Calendar):**
 Auth-arkitektur, full database (16 tabeller + RLS), Dashboard med
-anbefalingsmotor, Kalender, Fagoversikt + fagdetalj med knowledge map,
-Øvinger, Eksamen med fase-logikk, Today/Daily brief, globalt søk, AI Tutor
-(chat mot Anthropic/OpenAI), Settings/Integrations-skjelett, demo-modus som
-gjør at alt fungerer uten noen credentials.
+anbefalingsmotor, Kalender (inkl. Google Calendar-synk), Fagoversikt +
+fagdetalj med knowledge map, Øvinger, Eksamen med fase-logikk, Today/Daily
+brief, globalt søk, AI Tutor (chat mot Anthropic/OpenAI/NTNU IDUN),
+Settings/Integrations, demo-modus som gjør at alt fungerer uten noen
+credentials.
 
 **Klargjort i datamodell, men krever din handling for å fullføres (prioritet
-15–19 i spec, slik du selv ba om i pkt. 40–41):**
-- Google Calendar OAuth-callback (trenger dine Google-credentials)
+16–19 i spec, slik du selv ba om i pkt. 40–41):**
 - Canvas API-klient (trenger Canvas-token)
 - NTNU-scraping er implementert som best-effort (`/api/courses`), bør
   forsterkes når du ser hvordan NTNUs sider faktisk er strukturert
