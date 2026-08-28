@@ -1,26 +1,43 @@
 import Link from 'next/link';
-import { format } from 'date-fns';
+import { addDays, format, isToday, startOfDay } from 'date-fns';
 import { nb } from 'date-fns/locale';
-import { getAssignments, getCourses, getLectures } from '@/lib/data';
+import { getAssignments, getCourses, getLectures, DEMO_MODE } from '@/lib/data';
+import { getGoogleCalendarEvents, getGoogleTasks } from '@/lib/google-calendar';
+import { buildAgendaItems, itemColor } from '@/lib/agenda';
 import {
   buildNextActionBrief,
   computeWeeklyFocus,
   daysUntil,
-  getTodayLectures,
   getUpcomingDeadlines,
-  getUpcomingLectures,
 } from '@/lib/study-logic';
 import { Badge, Button, Card, ProgressBar, SectionTitle } from '@/components/ui';
 
 export default async function DashboardPage() {
-  const [courses, lectures, assignments] = await Promise.all([
+  const now = new Date();
+  const rangeStart = startOfDay(now);
+  const rangeEnd = addDays(now, 14);
+
+  const [courses, lectures, assignments, googleEvents, googleTasks] = await Promise.all([
     getCourses(),
     getLectures(),
     getAssignments(),
+    DEMO_MODE ? Promise.resolve([]) : getGoogleCalendarEvents({ timeMin: rangeStart, timeMax: rangeEnd }),
+    DEMO_MODE ? Promise.resolve([]) : getGoogleTasks(),
   ]);
 
-  const todayLectures = getTodayLectures(lectures);
-  const upcomingLectures = getUpcomingLectures(lectures, 5);
+  // Slår sammen lokale forelesninger med hendelser fra Google Calendar, slik at
+  // "I dag" og "Neste hendelser" viser det samme bildet som selve kalendersiden —
+  // ikke bare de forhåndsdefinerte NTNU-forelesningene.
+  const { items: agendaItems } = buildAgendaItems({ lectures, assignments, googleEvents, googleTasks });
+  const scheduleItems = agendaItems.filter((it) => it.category === 'lecture' || it.category === 'google');
+  const todayItems = scheduleItems
+    .filter((it) => isToday(it.start))
+    .sort((a, b) => a.start.getTime() - b.start.getTime());
+  const upcomingItems = scheduleItems
+    .filter((it) => it.start.getTime() >= now.getTime() && !isToday(it.start))
+    .sort((a, b) => a.start.getTime() - b.start.getTime())
+    .slice(0, 5);
+
   const deadlines = getUpcomingDeadlines(assignments, 6);
   const weeklyFocus = computeWeeklyFocus(courses, lectures, assignments).slice(0, 3);
   const brief = buildNextActionBrief(lectures, assignments);
@@ -72,38 +89,49 @@ export default async function DashboardPage() {
         {/* I dag */}
         <Card className="md:col-span-2">
           <SectionTitle>I dag</SectionTitle>
-          {todayLectures.length === 0 ? (
-            <p className="text-sm text-muted">Ingen forelesninger i dag.</p>
+          {todayItems.length === 0 ? (
+            <p className="text-sm text-muted">Ingen forelesninger eller hendelser i dag.</p>
           ) : (
             <ul className="space-y-4">
-              {todayLectures.map((l) => (
-                <li key={l.id} className="border-b border-line pb-4 last:border-0 last:pb-0">
-                  <div className="flex items-center justify-between">
-                    <p className="font-medium">
-                      {l.courseCode} — {l.title}
-                    </p>
-                    <span className="text-sm text-muted">
-                      {format(new Date(l.scheduledAt), 'HH:mm')}
-                    </span>
-                  </div>
-                  {l.prepInstructions && (
-                    <p className="mt-1 text-sm text-muted">Før forelesningen: {l.prepInstructions}</p>
-                  )}
-                </li>
-              ))}
+              {todayItems.map((it) => {
+                const lecture = it.category === 'lecture' ? lectures.find((l) => l.id === it.id) : undefined;
+                return (
+                  <li key={it.id} className="border-b border-line pb-4 last:border-0 last:pb-0">
+                    <div className="flex items-center justify-between">
+                      <p className="flex items-center gap-2 font-medium">
+                        <span
+                          className="h-2 w-2 shrink-0 rounded-full"
+                          style={{ backgroundColor: itemColor(it) }}
+                        />
+                        {it.title}
+                      </p>
+                      <span className="text-sm text-muted">{format(it.start, 'HH:mm')}</span>
+                    </div>
+                    {lecture?.prepInstructions && (
+                      <p className="mt-1 text-sm text-muted">
+                        Før forelesningen: {lecture.prepInstructions}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
 
           <div className="mt-6">
-            <SectionTitle>Neste forelesninger</SectionTitle>
+            <SectionTitle>Neste hendelser</SectionTitle>
             <ul className="space-y-2">
-              {upcomingLectures.map((l) => (
-                <li key={l.id} className="flex items-center justify-between text-sm">
-                  <span>
-                    {l.courseCode} — {l.title}
+              {upcomingItems.map((it) => (
+                <li key={it.id} className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2">
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: itemColor(it) }}
+                    />
+                    {it.title}
                   </span>
                   <span className="text-muted">
-                    {format(new Date(l.scheduledAt), 'EEE d. MMM, HH:mm', { locale: nb })}
+                    {format(it.start, 'EEE d. MMM, HH:mm', { locale: nb })}
                   </span>
                 </li>
               ))}

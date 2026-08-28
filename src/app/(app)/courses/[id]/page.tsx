@@ -1,7 +1,8 @@
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { format } from 'date-fns';
 import { nb } from 'date-fns/locale';
-import { getAssignments, getCourses, getLectures, getTopics } from '@/lib/data';
+import { getAssignments, getCourses, getDocuments, getLectures, getTopics } from '@/lib/data';
 import { Badge, Card, ProgressBar, SectionTitle } from '@/components/ui';
 
 const masteryTone = {
@@ -19,11 +20,12 @@ const masteryLabel = {
 } as const;
 
 export default async function CourseDetailPage({ params }: { params: { id: string } }) {
-  const [courses, lectures, assignments, topics] = await Promise.all([
+  const [courses, lectures, assignments, topics, documents] = await Promise.all([
     getCourses(),
     getLectures(),
     getAssignments(),
     getTopics(params.id),
+    getDocuments(params.id),
   ]);
 
   const course = courses.find((c) => c.id === params.id);
@@ -31,6 +33,7 @@ export default async function CourseDetailPage({ params }: { params: { id: strin
 
   const courseLectures = lectures.filter((l) => l.courseCode === course.code);
   const courseAssignments = assignments.filter((a) => a.courseCode === course.code);
+  const latestAnalysis = documents.find((d) => d.status === 'done' && d.aiSummary);
 
   return (
     <div className="space-y-8">
@@ -73,6 +76,43 @@ export default async function CourseDetailPage({ params }: { params: { id: strin
           </p>
         </Card>
       </div>
+
+      {/* Pensum-analyse */}
+      {latestAnalysis ? (
+        <Card>
+          <SectionTitle
+            action={
+              <Link href="/library" className="text-xs text-accent">
+                Se alle dokumenter →
+              </Link>
+            }
+          >
+            Pensum-analyse ({latestAnalysis.title})
+          </SectionTitle>
+          <p className="text-sm text-ink/80">{latestAnalysis.aiSummary}</p>
+          {latestAnalysis.aiKeyConcepts.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {latestAnalysis.aiKeyConcepts.map((k) => (
+                <Badge key={k} tone="accent">
+                  {k}
+                </Badge>
+              ))}
+            </div>
+          )}
+          {latestAnalysis.aiExamRelevance && (
+            <p className="mt-3 text-xs text-muted">Eksamensrelevans: {latestAnalysis.aiExamRelevance}</p>
+          )}
+        </Card>
+      ) : (
+        <Card className="border-dashed">
+          <p className="text-sm text-muted">
+            Ingen pensum eller undervisningsplan analysert ennå.{' '}
+            <Link href="/library" className="text-accent">
+              Last opp under Library →
+            </Link>
+          </p>
+        </Card>
+      )}
 
       {/* Knowledge map */}
       <Card>

@@ -66,3 +66,30 @@ export interface WeekFocusItem {
   reason: string;
   priority: number;
 }
+
+export type DocumentType =
+  | 'lecture_slides'
+  | 'curriculum'
+  | 'assignment'
+  | 'exam'
+  | 'notes'
+  | 'course_plan'
+  | 'other';
+
+export type DocumentStatus = 'pending' | 'processing' | 'done' | 'error';
+
+export interface CourseDocument {
+  id: string;
+  courseId: string;
+  courseCode: string;
+  docType: DocumentType;
+  title: string;
+  storagePath: string;
+  status: DocumentStatus;
+  errorMessage?: string | null;
+  aiSummary?: string | null;
+  aiKeyConcepts: string[];
+  aiExamRelevance?: string | null;
+  processedAt?: string | null;
+  createdAt: string;
+}

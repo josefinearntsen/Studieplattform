@@ -1,6 +1,6 @@
 import { isSupabaseConfigured, createClient } from './supabase/server';
 import { demoAssignments, demoCourses, demoExams, demoLectures, demoTopics } from './demo-data';
-import type { Assignment, Course, Exam, Lecture, Topic } from './types';
+import type { Assignment, Course, CourseDocument, Exam, Lecture, Topic } from './types';
 
 /**
  * Denne modulen er det ENESTE stedet sidene henter data fra.
@@ -100,6 +100,39 @@ export async function getExams(): Promise<Exam[]> {
     courseId: e.course_id,
     courseCode: e.courses?.code ?? '',
     examDate: e.exam_date,
+  }));
+}
+
+/**
+ * Opplastede pensum-/undervisningsplandokumenter og AI-analysen av dem.
+ * Uten Supabase (demo-modus) finnes ingen opplasting, så tom liste returneres.
+ */
+export async function getDocuments(courseId?: string): Promise<CourseDocument[]> {
+  if (DEMO_MODE) return [];
+
+  const supabase = createClient();
+  let query = supabase
+    .from('documents')
+    .select('*, courses(code)')
+    .order('created_at', { ascending: false });
+  if (courseId) query = query.eq('course_id', courseId);
+
+  const { data } = await query;
+
+  return (data ?? []).map((d: any) => ({
+    id: d.id,
+    courseId: d.course_id,
+    courseCode: d.courses?.code ?? '',
+    docType: d.doc_type,
+    title: d.title,
+    storagePath: d.storage_path,
+    status: d.status,
+    errorMessage: d.error_message,
+    aiSummary: d.ai_summary,
+    aiKeyConcepts: d.ai_key_concepts ?? [],
+    aiExamRelevance: d.ai_exam_relevance,
+    processedAt: d.processed_at,
+    createdAt: d.created_at,
   }));
 }
 

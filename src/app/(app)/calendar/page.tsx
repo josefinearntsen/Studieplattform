@@ -1,95 +1,95 @@
 import Link from 'next/link';
-import { addDays, addWeeks, format, isSameDay, startOfWeek } from 'date-fns';
+import {
+  addDays,
+  addMonths,
+  addWeeks,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  startOfMonth,
+  startOfWeek,
+} from 'date-fns';
 import { nb } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, CheckSquare } from 'lucide-react';
-import { getAssignments, getLectures, DEMO_MODE } from '@/lib/data';
-import { getGoogleCalendarEvents, getGoogleTasks, isGoogleCalendarConnected } from '@/lib/google-calendar';
-import { Badge, Card, SectionTitle } from '@/components/ui';
+import { getAgenda } from '@/lib/agenda-fetch';
+import { Card, SectionTitle } from '@/components/ui';
+import { WeekView, type SerializedItem } from './WeekView';
+import { MonthView } from './MonthView';
+import { itemColor } from './utils';
 
-type AgendaItem = {
-  id: string;
-  date: Date;
-  title: string;
-  category: 'lecture' | 'deadline' | 'google';
-  color?: string;
-};
+type CalendarView = 'week' | 'month';
+
+function parseAnchorDate(raw?: string): Date {
+  if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const d = new Date(`${raw}T00:00:00`);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return new Date();
+}
 
 export default async function CalendarPage({
   searchParams,
 }: {
-  searchParams: { week?: string };
+  searchParams: { view?: string; date?: string };
 }) {
-  const [lectures, assignments, googleEvents, googleTasks, googleConnected] = await Promise.all([
-    getLectures(),
-    getAssignments(),
-    DEMO_MODE ? Promise.resolve([]) : getGoogleCalendarEvents(),
-    DEMO_MODE ? Promise.resolve([]) : getGoogleTasks(),
-    DEMO_MODE ? Promise.resolve(false) : isGoogleCalendarConnected(),
-  ]);
+  const view: CalendarView = searchParams.view === 'month' ? 'month' : 'week';
+  const anchor = parseAnchorDate(searchParams.date);
 
-  const items: AgendaItem[] = [
-    ...lectures.map((l) => ({
-      id: l.id,
-      date: new Date(l.scheduledAt),
-      title: `${l.courseCode} — ${l.title}`,
-      category: 'lecture' as const,
-    })),
-    ...assignments.map((a) => ({
-      id: a.id,
-      date: new Date(a.dueAt),
-      title: `${a.courseCode} — ${a.title} (frist)`,
-      category: 'deadline' as const,
-    })),
-    ...googleEvents.map((e) => ({
-      id: e.id,
-      date: new Date(e.start),
-      title: e.title,
-      category: 'google' as const,
-      color: e.color,
-    })),
-  ];
+  // Beregn hvilket datointervall som skal vises i rutenettet.
+  const weekStart = startOfWeek(anchor, { weekStartsOn: 1 });
+  const monthStart = startOfMonth(anchor);
+  const gridStart = view === 'week' ? weekStart : startOfWeek(monthStart, { weekStartsOn: 1 });
+  const gridEndExclusive =
+    view === 'week'
+      ? addDays(weekStart, 7)
+      : addDays(endOfWeek(endOfMonth(anchor), { weekStartsOn: 1 }), 1);
 
-  // Gjøremål med frist vises også i tidslinjen; de uten frist vises kun i egen liste
-  const tasksWithDue = googleTasks.filter((t) => t.due);
-  const tasksWithoutDue = googleTasks.filter((t) => !t.due);
-  tasksWithDue.forEach((t) => {
-    items.push({
-      id: `task-${t.id}`,
-      date: new Date(t.due as string),
-      title: `✓ ${t.title}`,
-      category: 'google',
-      color: '#6E5A94',
-    });
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+  const monthDays =
+    view === 'month'
+      ? eachDayOfInterval({ start: gridStart, end: addDays(gridEndExclusive, -1) })
+      : [];
+
+  // Google-hendelser hentes for det synlige rutenettet, men aldri smalere enn
+  // "nå til 60 dager frem" — det holder agendalisten nederst fylt uansett hvilken
+  // uke/måned man ser på, samtidig som tidligere hendelser i rutenettet ikke forsvinner.
+  const now = new Date();
+  const fetchMin = gridStart < now ? gridStart : now;
+  const fetchMax = gridEndExclusive > addDays(now, 60) ? gridEndExclusive : addDays(now, 60);
+
+  const { items, tasksWithoutDue, googleConnected } = await getAgenda({
+    timeMin: fetchMin,
+    timeMax: fetchMax,
   });
 
-  const weekOffset = Number(searchParams.week ?? '0') || 0;
-  const weekStart = addWeeks(startOfWeek(new Date(), { weekStartsOn: 1 }), weekOffset);
-  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
-
   const upcoming = items
-    .filter((it) => it.date.getTime() >= Date.now())
-    .sort((a, b) => a.date.getTime() - b.date.getTime())
+    .filter((it) => it.start.getTime() >= Date.now())
+    .sort((a, b) => a.start.getTime() - b.start.getTime())
     .slice(0, 15);
 
-  function itemBadge(it: AgendaItem, showTime = true) {
-    if (it.category === 'google') {
-      return (
-        <span
-          className="inline-block rounded-full px-2.5 py-1 text-xs font-medium text-white"
-          style={{ backgroundColor: it.color }}
-        >
-          {showTime && `${format(it.date, 'HH:mm')} `}
-          {it.title}
-        </span>
-      );
-    }
-    return (
-      <Badge tone={it.category === 'lecture' ? 'accent' : 'warn'}>
-        {showTime && `${format(it.date, 'HH:mm')} `}
-        {it.title}
-      </Badge>
-    );
-  }
+  const serializedWeekItems: SerializedItem[] = items.map((it) => ({
+    id: it.id,
+    start: it.start.toISOString(),
+    end: it.end.toISOString(),
+    title: it.title,
+    category: it.category,
+    color: it.color,
+    meta: it.meta,
+  }));
+
+  const dateParam = format(anchor, 'yyyy-MM-dd');
+  const todayParam = format(new Date(), 'yyyy-MM-dd');
+  const prevAnchor = view === 'week' ? addWeeks(anchor, -1) : addMonths(anchor, -1);
+  const nextAnchor = view === 'week' ? addWeeks(anchor, 1) : addMonths(anchor, 1);
+  const hrefFor = (v: CalendarView, d: Date) => `/calendar?view=${v}&date=${format(d, 'yyyy-MM-dd')}`;
+
+  const rangeLabel =
+    view === 'week'
+      ? `${format(weekStart, 'd. MMM', { locale: nb })} – ${format(addDays(weekStart, 6), 'd. MMM yyyy', { locale: nb })}`
+      : format(anchor, 'LLLL yyyy', { locale: nb }).replace(/^./, (c) => c.toUpperCase());
+
+  const isCurrent = view === 'week' ? dateParam === todayParam || weekDays.some((d) => format(d, 'yyyy-MM-dd') === todayParam) : format(anchor, 'yyyy-MM') === format(new Date(), 'yyyy-MM');
 
   return (
     <div className="space-y-6">
@@ -101,47 +101,59 @@ export default async function CalendarPage({
         </p>
       </header>
 
-      <div className="flex items-center justify-between">
-        <Link
-          href={`/calendar?week=${weekOffset - 1}`}
-          className="flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted hover:bg-canvas"
-        >
-          <ChevronLeft size={16} /> Forrige uke
-        </Link>
-        <p className="text-sm font-medium">
-          {format(weekStart, 'd. MMM', { locale: nb })} –{' '}
-          {format(addDays(weekStart, 6), 'd. MMM yyyy', { locale: nb })}
-          {weekOffset !== 0 && (
-            <Link href="/calendar" className="ml-2 text-xs text-accent">
-              (til i dag)
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1">
+          <Link
+            href={hrefFor(view, prevAnchor)}
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted hover:bg-canvas"
+          >
+            <ChevronLeft size={16} />
+          </Link>
+          <Link
+            href={hrefFor(view, nextAnchor)}
+            className="flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted hover:bg-canvas"
+          >
+            <ChevronRight size={16} />
+          </Link>
+          {!isCurrent && (
+            <Link
+              href={hrefFor(view, new Date())}
+              className="ml-1 rounded-lg border border-line px-2.5 py-1 text-xs font-medium text-muted hover:bg-canvas"
+            >
+              I dag
             </Link>
           )}
-        </p>
-        <Link
-          href={`/calendar?week=${weekOffset + 1}`}
-          className="flex items-center gap-1 rounded-lg px-2 py-1 text-sm text-muted hover:bg-canvas"
-        >
-          Neste uke <ChevronRight size={16} />
-        </Link>
+          <p className="ml-2 text-sm font-medium">{rangeLabel}</p>
+        </div>
+
+        <div className="flex items-center gap-1 rounded-lg border border-line p-0.5">
+          <Link
+            href={hrefFor('week', anchor)}
+            className={`rounded-md px-3 py-1 text-sm font-medium ${
+              view === 'week' ? 'bg-ink text-white' : 'text-muted hover:bg-canvas'
+            }`}
+          >
+            Uke
+          </Link>
+          <Link
+            href={hrefFor('month', anchor)}
+            className={`rounded-md px-3 py-1 text-sm font-medium ${
+              view === 'month' ? 'bg-ink text-white' : 'text-muted hover:bg-canvas'
+            }`}
+          >
+            Måned
+          </Link>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-7">
-        {days.map((day) => {
-          const dayItems = items.filter((it) => isSameDay(it.date, day));
-          return (
-            <Card key={day.toISOString()} className="min-h-[160px]">
-              <p className="text-xs font-medium uppercase text-muted">
-                {format(day, 'EEE d.', { locale: nb })}
-              </p>
-              <ul className="mt-2 space-y-2">
-                {dayItems.map((it) => (
-                  <li key={it.id}>{itemBadge(it)}</li>
-                ))}
-              </ul>
-            </Card>
-          );
-        })}
-      </div>
+      {view === 'week' ? (
+        <WeekView
+          days={weekDays.map((d) => format(d, 'yyyy-MM-dd'))}
+          items={serializedWeekItems}
+        />
+      ) : (
+        <MonthView days={monthDays} monthAnchor={monthStart} items={items} />
+      )}
 
       <Card>
         <SectionTitle>Kommende hendelser</SectionTitle>
@@ -151,13 +163,16 @@ export default async function CalendarPage({
           <ul className="divide-y divide-line">
             {upcoming.map((it) => (
               <li key={it.id} className="flex items-center justify-between py-2 text-sm">
-                <span>{it.title}</span>
-                <div className="flex items-center gap-2">
-                  <span className="text-muted">
-                    {format(it.date, 'EEE d. MMM, HH:mm', { locale: nb })}
-                  </span>
-                  {itemBadge(it, false)}
-                </div>
+                <span className="flex items-center gap-2">
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: itemColor(it) }}
+                  />
+                  {it.title}
+                </span>
+                <span className="text-muted">
+                  {format(it.start, 'EEE d. MMM, HH:mm', { locale: nb })}
+                </span>
               </li>
             ))}
           </ul>

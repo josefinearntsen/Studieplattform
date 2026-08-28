@@ -104,10 +104,16 @@ export async function listGoogleCalendars(): Promise<GoogleCalendarInfo[]> {
 }
 
 /**
- * Henter kommende hendelser fra alle kalendere brukeren har valgt å synkronisere,
+ * Henter hendelser fra alle kalendere brukeren har valgt å synkronisere,
  * med hver kalenders egen Google-farge påført.
+ *
+ * `range` avgrenser hvilket tidsrom som hentes (f.eks. den synlige uken/måneden
+ * i kalendervisningen). Uten `range` hentes kommende hendelser fra nå av, som før.
  */
-export async function getGoogleCalendarEvents(): Promise<GoogleEvent[]> {
+export async function getGoogleCalendarEvents(range?: {
+  timeMin: Date;
+  timeMax: Date;
+}): Promise<GoogleEvent[]> {
   const ctx = await getRefreshTokenForCurrentUser();
   if (!ctx) return [];
 
@@ -119,11 +125,12 @@ export async function getGoogleCalendarEvents(): Promise<GoogleEvent[]> {
   const colorMap = new Map(calendars.map((c) => [c.id, c.backgroundColor]));
 
   const params = new URLSearchParams({
-    timeMin: new Date().toISOString(),
-    maxResults: '50',
+    timeMin: (range?.timeMin ?? new Date()).toISOString(),
+    maxResults: '250',
     singleEvents: 'true',
     orderBy: 'startTime',
   });
+  if (range?.timeMax) params.set('timeMax', range.timeMax.toISOString());
 
   const results = await Promise.all(
     ctx.selectedCalendarIds.map(async (calendarId) => {
